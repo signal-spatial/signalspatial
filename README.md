@@ -4,7 +4,7 @@ Website
 
 ## Logo
 
-The mark is the Tennessee River Gorge below Signal Mountain. Elevation contours along the river meander are turned upright so the gorge reads as an S, in earth tones on a dark ground.
+The mark is the Tennessee River Gorge below Signal Mountain, built as stacked relief terraces so the meander reads as an S. Earth tones sit on a dark ground, with a soft shadow under each step.
 
 | File | Use |
 | --- | --- |

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Build the signal_spatial mark from the Tennessee River Gorge.
 
-The letter S is the river meander directly below Signal Mountain. Contours
-are traced from elevation tiles along that centerline, then rotated so the
-meander stands upright. Low contours stay olive, the plateau rim goes to
-sandstone and limestone, on a warm black ground.
+The letter S is the river meander directly below Signal Mountain. The gorge
+is drawn as stacked relief layers, the way a cut terrain model is built:
+broad filled terraces, a soft shadow under each step, and a faint grid on
+the lowest board. The meander is rotated so it stands upright, on a warm
+black ground.
 
-Needs numpy, pillow, matplotlib, and fontTools. The script requests public
+Needs numpy, scipy, pillow, matplotlib, and fontTools. The script requests public
 AWS terrain tiles. Behind a Zscaler proxy, point Python at the local
 certificate bundle rather than disabling TLS verification.
 
@@ -30,6 +31,7 @@ import numpy as np
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.ttLib import TTFont
 from PIL import Image, ImageDraw, ImageFont
+from scipy import ndimage
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "brand"
@@ -102,29 +104,27 @@ RIVER = np.array([
 
 ZOOM = 13
 CROP_PAD_PX = 180
-BAND_PX = 100
-LEVEL_MIN_M = 210
-LEVEL_MAX_M = 650
-LEVEL_STEP_M = 28
-MIN_SEGMENT_PX = 32
-SMOOTH_WINDOW = 8
-SIMPLIFY_PX = 1.35
-# Drops the disconnected bluff west of the meander, in crop pixels.
-KEEP_EAST_OF_PX = 240
-ROTATE_DEG = -70
+BAND_PX = 96
+SMOOTH_SIGMA = 9.0
+MASK_SIGMA = 3.4
+N_LAYERS = 7
+# scipy rotates the array counterclockwise. This stands the meander up as an S.
+ROTATE_DEG = 70
 MARK_SIZE = 512
 BG = "#12100e"
+BG_RGB = (18, 16, 14)
 WORDMARK = "signal_spatial"
-WORD_COLOR = "#e6d5b8"
-# River shadow to plateau limestone.
+WORD_COLOR = "#f3ecdf"
+# Lowest board to the crest, in the sand / sage / cream range of a cut terrain model.
 PALETTE = np.array([
-    [88, 106, 78],
-    [122, 90, 58],
-    [164, 116, 68],
-    [196, 150, 96],
-    [218, 188, 146],
-    [236, 224, 202],
-], dtype=float)
+    [198, 172, 138],
+    [188, 180, 160],
+    [214, 196, 168],
+    [176, 162, 140],
+    [226, 214, 192],
+    [236, 226, 210],
+    [246, 240, 228],
+], dtype=np.float32)
 
 FONT_CANDIDATES = [
     "/usr/share/fonts/truetype/macos/Inter-Medium.ttf",
@@ -241,86 +241,144 @@ def smooth_open(pts: np.ndarray, win: int) -> np.ndarray:
     return np.column_stack([np.convolve(x, kernel, mode="valid"), np.convolve(y, kernel, mode="valid")])
 
 
-def contour_segments(elev: np.ndarray, dist: np.ndarray) -> list[tuple[float, np.ndarray]]:
-    fig, ax = plt.subplots()
-    levels = np.arange(LEVEL_MIN_M, LEVEL_MAX_M, LEVEL_STEP_M)
-    contours = ax.contour(elev, levels=levels)
-    plt.close(fig)
-    h, w = dist.shape
-    segments: list[tuple[float, np.ndarray]] = []
-    for level, coll in zip(contours.levels, contours.allsegs):
-        for seg in coll:
-            if len(seg) < 5:
+def hex_color(rgb: np.ndarray) -> str:
+    return "#{:02x}{:02x}{:02x}".format(*(int(round(c)) for c in rgb))
+
+
+def darken(rgb: np.ndarray, factor: float) -> str:
+    return hex_color(np.clip(rgb * factor, 0, 255))
+
+
+def gorge_index(elev: np.ndarray, dist: np.ndarray) -> np.ndarray:
+    """Smoothed terrace index for the meander. -1 is outside the mark."""
+    smooth = ndimage.gaussian_filter(elev, sigma=SMOOTH_SIGMA)
+    raw = dist < BAND_PX
+    labels, count = ndimage.label(raw)
+    if count:
+        sizes = ndimage.sum(raw, labels, range(1, count + 1))
+        raw = labels == (int(np.argmax(sizes)) + 1)
+    corridor = ndimage.gaussian_filter(raw.astype(np.float32), sigma=MASK_SIGMA) > 0.5
+    # Rotate the array counterclockwise so the river meander stands up as an S.
+    elev_r = ndimage.rotate(smooth, ROTATE_DEG, reshape=True, order=1, cval=float(smooth.min()))
+    mask_r = ndimage.rotate(corridor.astype(np.float32), ROTATE_DEG, reshape=True, order=1, cval=0) > 0.5
+    inside = elev_r[mask_r]
+    lo, hi = np.percentile(inside, [12, 90])
+    levels = np.linspace(lo, hi, N_LAYERS)
+    index = np.clip(np.digitize(elev_r, levels[1:]), 0, N_LAYERS - 1)
+    return np.where(mask_r, index, -1)
+
+
+def shade_mark(index: np.ndarray) -> np.ndarray:
+    """Paint terraces with a step shadow, a cut edge, and a grid on the base board."""
+    height, width = index.shape
+    rgb = np.zeros((height, width, 3), dtype=np.float32)
+    shadow = np.zeros((height, width), dtype=np.float32)
+    for level in range(N_LAYERS):
+        if level:
+            mask = (index >= level).astype(np.float32)
+            shifted = np.zeros_like(mask)
+            shifted[6:, 5:] = mask[:-6, :-5]
+            blurred = ndimage.gaussian_filter(shifted, sigma=2.8)
+            lower = (index >= 0) & (index < level)
+            shadow[lower] = np.maximum(shadow[lower], blurred[lower] * 0.9)
+        rgb[index == level] = PALETTE[level]
+    land = index >= 0
+    rgb[land] *= (1.0 - 0.5 * np.clip(shadow[land], 0, 1))[:, None]
+    riser = np.zeros(index.shape, dtype=bool)
+    riser[:-4, :-3] = (index[:-4, :-3] > index[4:, 3:]) & (index[:-4, :-3] >= 0)
+    rgb[riser] *= 0.74
+    lip = np.zeros(index.shape, dtype=bool)
+    lip[4:, 3:] = (index[4:, 3:] > index[:-4, :-3]) & (index[4:, 3:] >= 0)
+    rgb[lip] = np.minimum(255, rgb[lip] * 1.06 + 10)
+    grid = np.zeros(index.shape, dtype=bool)
+    grid[::11, :] = True
+    grid[:, ::11] = True
+    rgb[(index == 0) & grid] *= 0.92
+    base = land.astype(np.float32)
+    shifted = np.zeros_like(base)
+    shifted[16:, 12:] = base[:-16, :-12]
+    soft = ndimage.gaussian_filter(shifted, sigma=14)
+    bg = np.array(BG_RGB, dtype=np.float32)
+    out = bg * (1 - 0.5 * np.clip(soft, 0, 1)[..., None])
+    out[land] = rgb[land]
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def frame_of(index: np.ndarray, pad: int = 56) -> tuple[float, float, float]:
+    rows, cols = np.where(index >= 0)
+    x0, x1 = float(cols.min() - pad), float(cols.max() + pad)
+    y0, y1 = float(rows.min() - pad), float(rows.max() + pad)
+    side = max(x1 - x0, y1 - y0)
+    origin_x = x0 - (side - (x1 - x0)) / 2
+    origin_y = y0 - (side - (y1 - y0)) / 2
+    return origin_x, origin_y, side
+
+
+def to_mark(points: np.ndarray, origin_x: float, origin_y: float, side: float) -> np.ndarray:
+    xy = np.empty_like(points)
+    xy[:, 0] = (points[:, 0] - origin_x) / side * MARK_SIZE
+    xy[:, 1] = (points[:, 1] - origin_y) / side * MARK_SIZE
+    return xy
+
+
+def terrace_rings(index: np.ndarray, origin_x: float, origin_y: float, side: float) -> list[tuple[str, list[np.ndarray]]]:
+    layers: list[tuple[str, list[np.ndarray]]] = []
+    for level in range(N_LAYERS):
+        fig, ax = plt.subplots()
+        contours = ax.contour((index >= level).astype(float), levels=[0.5])
+        plt.close(fig)
+        rings: list[np.ndarray] = []
+        for seg in contours.allsegs[0]:
+            if len(seg) < 12 or float(np.hypot(*(seg[0] - seg[-1]))) > 2.5:
                 continue
-            xs = np.clip(np.rint(seg[:, 0]).astype(int), 0, w - 1)
-            ys = np.clip(np.rint(seg[:, 1]).astype(int), 0, h - 1)
-            inside = dist[ys, xs] < BAND_PX + 1.5
-            run: list[np.ndarray] = []
-            runs: list[np.ndarray] = []
-            for point, ok in zip(seg, inside):
-                if ok:
-                    run.append(point)
-                elif len(run) >= 4:
-                    runs.append(np.asarray(run, float))
-                    run = []
-                else:
-                    run = []
-            if len(run) >= 4:
-                runs.append(np.asarray(run, float))
-            for item in runs:
-                simplified = rdp(smooth_open(item, SMOOTH_WINDOW), SIMPLIFY_PX)
-                if len(simplified) < 2 or simplified[:, 0].mean() <= KEEP_EAST_OF_PX:
-                    continue
-                step = np.diff(simplified, axis=0)
-                if float(np.hypot(step[:, 0], step[:, 1]).sum()) >= MIN_SEGMENT_PX:
-                    segments.append((float(level), simplified))
-    return segments
-
-
-def layout(segments: list[tuple[float, np.ndarray]], size: float, pad: float) -> list[tuple[float, np.ndarray]]:
-    pts = np.vstack([seg for _, seg in segments])
-    theta = math.radians(ROTATE_DEG)
-    rot = np.array([[math.cos(theta), -math.sin(theta)], [math.sin(theta), math.cos(theta)]])
-    center = pts.mean(axis=0)
-    rotated = [(level, (seg - center) @ rot.T) for level, seg in segments]
-    all_pts = np.vstack([seg for _, seg in rotated])
-    min_xy, max_xy = all_pts.min(axis=0), all_pts.max(axis=0)
-    mid = (min_xy + max_xy) / 2
-    span = float(max(max_xy - min_xy)) * (1 + 2 * pad)
-    origin = mid - span / 2
-    placed = []
-    for level, seg in rotated:
-        xy = (seg - origin) / span * size
-        placed.append((level, xy))
-    return placed
-
-
-def color_hex(level: float) -> str:
-    t = float(np.clip((level - LEVEL_MIN_M) / (LEVEL_MAX_M - LEVEL_STEP_M - LEVEL_MIN_M), 0, 1))
-    pos = np.linspace(0, 1, len(PALETTE))
-    rgb = [int(round(np.interp(t, pos, PALETTE[:, c]))) for c in range(3)]
-    return "#{:02x}{:02x}{:02x}".format(*rgb)
+            simplified = rdp(smooth_open(seg, 11), 2.0)
+            if len(simplified) < 8:
+                continue
+            step = np.diff(simplified, axis=0)
+            if float(np.hypot(step[:, 0], step[:, 1]).sum()) < 48:
+                continue
+            rings.append(to_mark(simplified, origin_x, origin_y, side))
+        if rings:
+            layers.append((hex_color(PALETTE[level]), rings))
+    return layers
 
 
 def path_d(pts: np.ndarray) -> str:
     cmds = [f"M {pts[0, 0]:.2f} {pts[0, 1]:.2f}"]
     cmds.extend(f"L {x:.2f} {y:.2f}" for x, y in pts[1:])
+    cmds.append("Z")
     return " ".join(cmds)
 
 
-def contour_group(segments: list[tuple[float, np.ndarray]]) -> str:
-    lines = ['  <g fill="none" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">']
-    for level, seg in sorted(segments, key=lambda item: item[0]):
-        lines.append(f'    <path stroke="{color_hex(level)}" d="{path_d(seg)}"/>')
-    lines.append("  </g>")
-    return "\n".join(lines)
+def layer_markup(layers: list[tuple[str, list[np.ndarray]]]) -> str:
+    filters = """  <defs>
+    <filter id="cast" x="-20%" y="-20%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="7" stdDeviation="8" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="step" x="-15%" y="-15%" width="140%" height="140%">
+      <feDropShadow dx="1.1" dy="2.2" stdDeviation="1.3" flood-color="#3a2b1c" flood-opacity="0.38"/>
+    </filter>
+    <pattern id="board" width="14" height="14" patternUnits="userSpaceOnUse">
+      <path d="M 14 0 H 0 V 14" fill="none" stroke="#000000" stroke-opacity="0.14" stroke-width="0.7"/>
+    </pattern>
+  </defs>"""
+    parts = [filters]
+    for i, (color, rings) in enumerate(layers):
+        paths = " ".join(path_d(ring) for ring in rings)
+        filt = "cast" if i == 0 else "step"
+        edge = darken(PALETTE[i], 0.72)
+        parts.append(f'  <g filter="url(#{filt})">')
+        parts.append(f'    <path fill="{color}" stroke="{edge}" stroke-width="1.4" stroke-linejoin="round" d="{paths}"/>')
+        if i == 0:
+            parts.append(f'    <path fill="url(#board)" d="{paths}"/>')
+        parts.append("  </g>")
+    return "\n".join(parts)
 
 
-def mark_svg(segments: list[tuple[float, np.ndarray]], background: bool) -> str:
+def mark_svg(layers: list[tuple[str, list[np.ndarray]]], background: bool) -> str:
     desc = (
-        "Contour mark of the Tennessee River Gorge below Signal Mountain, Tennessee. "
-        "Lines are elevations from about 210 m at the river to 640 m on the plateau, "
-        "rotated so the meander reads as an S."
+        "Relief mark of the Tennessee River Gorge below Signal Mountain, Tennessee. "
+        "Stacked terraces follow the river meander, turned upright so it reads as an S."
     )
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -330,9 +388,23 @@ def mark_svg(segments: list[tuple[float, np.ndarray]], background: bool) -> str:
     ]
     if background:
         lines.append(f'  <rect width="{MARK_SIZE}" height="{MARK_SIZE}" fill="{BG}"/>')
-    lines.append(contour_group(segments))
+    lines.append(layer_markup(layers))
     lines.append("</svg>")
     return "\n".join(lines) + "\n"
+
+
+def render_mark_png(index: np.ndarray, origin_x: float, origin_y: float, side: float, path: Path, px: int) -> None:
+    shaded = shade_mark(index)
+    x0 = int(math.floor(origin_x))
+    y0 = int(math.floor(origin_y))
+    x1 = int(math.ceil(origin_x + side))
+    y1 = int(math.ceil(origin_y + side))
+    canvas = Image.new("RGB", (x1 - x0, y1 - y0), BG_RGB)
+    src_x0, src_y0 = max(0, x0), max(0, y0)
+    src_x1, src_y1 = min(shaded.shape[1], x1), min(shaded.shape[0], y1)
+    tile = Image.fromarray(shaded[src_y0:src_y1, src_x0:src_x1], "RGB")
+    canvas.paste(tile, (src_x0 - x0, src_y0 - y0))
+    canvas.resize((px, px), Image.Resampling.LANCZOS).save(path, optimize=True)
 
 
 def find_font() -> Path:
@@ -352,36 +424,32 @@ def wordmark_group(font_path: Path, em_px: float, origin_x: float, baseline_y: f
     scale = em_px / upem
     tracking = 0.045 * upem
     cursor = 0.0
-    parts = [
-        f'  <g fill="{WORD_COLOR}" transform="translate({origin_x:.2f} {baseline_y:.2f}) scale({scale:.6f} {-scale:.6f})">'
-    ]
+    parts = []
     for char in WORDMARK:
         name = cmap[ord(char)]
         pen = SVGPathPen(glyphs)
         glyphs[name].draw(pen)
         parts.append(f'    <path transform="translate({cursor:.2f} 0)" d="{pen.getCommands()}"/>')
         cursor += glyphs[name].width + tracking
-    parts.append("  </g>")
-    # Lowercase sits on the baseline. Center the x-height on the caller-supplied baseline slot
-    # by shifting the group; baseline_y passed in is the vertical center of the mark.
-    # Recompute: caller passes the mark center. Adjust here.
     center_shift = scale * (sx_height / 2)
-    parts[0] = (
+    group = (
         f'  <g fill="{WORD_COLOR}" transform="translate({origin_x:.2f} {baseline_y + center_shift:.2f}) '
-        f'scale({scale:.6f} {-scale:.6f})">'
+        f'scale({scale:.6f} {-scale:.6f})">\n'
+        + "\n".join(parts)
+        + "\n  </g>"
     )
-    return "\n".join(parts), cursor * scale
+    return group, cursor * scale
 
 
-def lockup_svg(segments: list[tuple[float, np.ndarray]], font_path: Path) -> str:
+def lockup_svg(layers: list[tuple[str, list[np.ndarray]]], font_path: Path) -> str:
     em = 78
     gap = 36
-    ink_right = max(float(seg[:, 0].max()) for _, seg in segments)
+    ink_right = max(float(ring[:, 0].max()) for _, rings in layers for ring in rings)
     text, text_w = wordmark_group(font_path, em, ink_right + gap, MARK_SIZE / 2)
     width = ink_right + gap + text_w + 72
     desc = (
         "signal_spatial lockup. The mark is the Tennessee River Gorge below Signal Mountain, "
-        "set beside the name in Inter Medium."
+        "drawn as stacked relief terraces."
     )
     return "\n".join([
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -389,53 +457,29 @@ def lockup_svg(segments: list[tuple[float, np.ndarray]], font_path: Path) -> str
         "  <title>signal_spatial</title>",
         f"  <desc>{desc}</desc>",
         f'  <rect width="{width:.0f}" height="{MARK_SIZE}" fill="{BG}"/>',
-        contour_group(segments),
+        layer_markup(layers),
         text,
         "</svg>",
         "",
     ])
 
 
-def render_png(segments: list[tuple[float, np.ndarray]], path: Path, px: int) -> None:
-    # 72 dpi makes a linewidth of 1 equal one pixel, so the PNG matches the SVG stroke.
-    fig = plt.figure(figsize=(px / 72, px / 72), dpi=72, facecolor=BG)
-    ax = fig.add_axes([0, 0, 1, 1])
-    ax.set_facecolor(BG)
-    for level, seg in sorted(segments, key=lambda item: item[0]):
-        ax.plot(
-            seg[:, 0],
-            seg[:, 1],
-            color=color_hex(level),
-            lw=1.35 * px / MARK_SIZE,
-            solid_capstyle="round",
-            solid_joinstyle="round",
-        )
-    ax.set_xlim(0, MARK_SIZE)
-    ax.set_ylim(MARK_SIZE, 0)
-    ax.set_aspect("equal")
-    ax.axis("off")
-    fig.savefig(path, facecolor=BG)
-    plt.close(fig)
-
-
 def render_lockup_png(mark_png: Path, font_path: Path, dest: Path) -> None:
     mark = Image.open(mark_png).convert("RGB")
     em = int(round(mark.height * 78 / MARK_SIZE))
     font = ImageFont.truetype(str(font_path), em)
-    # Match the SVG tracking approximately by drawing glyph by glyph.
     tracking = int(round(em * 0.045))
     widths = [int(round(font.getlength(char))) for char in WORDMARK]
     text_w = sum(widths) + tracking * (len(WORDMARK) - 1)
-    ink = np.abs(np.asarray(mark).astype(int) - np.array([18, 16, 14])).sum(axis=2) > 24
+    ink = np.abs(np.asarray(mark).astype(int) - np.array(BG_RGB)).sum(axis=2) > 24
     ink_right = int(np.where(ink.any(axis=0))[0].max())
     gap = int(round(mark.width * 36 / MARK_SIZE))
     pad = int(round(mark.width * 72 / MARK_SIZE))
     text_x = ink_right + gap
-    canvas = Image.new("RGB", (text_x + text_w + pad, mark.height), BG)
+    canvas = Image.new("RGB", (text_x + text_w + pad, mark.height), BG_RGB)
     canvas.paste(mark, (0, 0))
     draw = ImageDraw.Draw(canvas)
-    ascent, descent = font.getmetrics()
-    # Center the x-height. Inter's x-height is about 0.53 of the em at this cut.
+    ascent, _descent = font.getmetrics()
     x_height = font.getbbox("x")[3] - font.getbbox("x")[1]
     baseline = mark.height / 2 + x_height / 2
     x = text_x
@@ -449,38 +493,39 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     print("loading elevation")
     elev, lat_n, lat_s, lon_w, lon_e = fetch_mosaic()
-    h, w = elev.shape
+    height, width = elev.shape
 
     def to_px(lat: float, lon: float) -> tuple[float, float]:
-        py = (lat_n - lat) / (lat_n - lat_s) * (h - 1)
-        px = (lon - lon_w) / (lon_e - lon_w) * (w - 1)
+        py = (lat_n - lat) / (lat_n - lat_s) * (height - 1)
+        px = (lon - lon_w) / (lon_e - lon_w) * (width - 1)
         return px, py
 
     river_px = np.array([to_px(lat, lon) for lat, lon in RIVER])
     x0 = max(0, int(math.floor(river_px[:, 0].min() - CROP_PAD_PX)))
     y0 = max(0, int(math.floor(river_px[:, 1].min() - CROP_PAD_PX)))
-    x1 = min(w - 1, int(math.ceil(river_px[:, 0].max() + CROP_PAD_PX)))
-    y1 = min(h - 1, int(math.ceil(river_px[:, 1].max() + CROP_PAD_PX)))
+    x1 = min(width - 1, int(math.ceil(river_px[:, 0].max() + CROP_PAD_PX)))
+    y1 = min(height - 1, int(math.ceil(river_px[:, 1].max() + CROP_PAD_PX)))
     crop = elev[y0:y1, x0:x1]
     mask_img = Image.new("L", (crop.shape[1], crop.shape[0]), 0)
     draw = ImageDraw.Draw(mask_img)
     local = [(float(px - x0), float(py - y0)) for px, py in river_px]
     draw.line(local, fill=1, width=3)
-    print("measuring the gorge wall")
-    dist = chamfer(np.asarray(mask_img) > 0)
-    print("tracing contours")
-    segments = contour_segments(crop, dist)
-    placed = layout(segments, MARK_SIZE, pad=0.13)
-    print(f"{len(placed)} contour segments")
+    print("stacking terraces")
+    index = gorge_index(crop, chamfer(np.asarray(mask_img) > 0))
+    origin_x, origin_y, side = frame_of(index)
+    layers = terrace_rings(index, origin_x, origin_y, side)
+    print(f"{len(layers)} terraces")
 
     font_path = find_font()
-    (OUT / "logo.svg").write_text(mark_svg(placed, background=True), encoding="utf-8")
-    (OUT / "logo-mark.svg").write_text(mark_svg(placed, background=False), encoding="utf-8")
-    (OUT / "logo-lockup.svg").write_text(lockup_svg(placed, font_path), encoding="utf-8")
-    render_png(placed, OUT / "logo.png", 1400)
+    (OUT / "logo.svg").write_text(mark_svg(layers, background=True), encoding="utf-8")
+    (OUT / "logo-mark.svg").write_text(mark_svg(layers, background=False), encoding="utf-8")
+    (OUT / "logo-lockup.svg").write_text(lockup_svg(layers, font_path), encoding="utf-8")
+    render_mark_png(index, origin_x, origin_y, side, OUT / "logo.png", 1400)
     render_lockup_png(OUT / "logo.png", font_path, OUT / "logo-lockup.png")
     print(f"wrote {OUT}")
 
 
 if __name__ == "__main__":
     main()
+
+
