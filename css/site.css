@@ -1,0 +1,459 @@
+/* signal_spatial site.
+   Color values match signal-spatial/.github brand/colors.css.
+   Yellow is a fill and a large mark on navy.
+   Small yellow text on paper uses Field Gold. */
+
+:root {
+  --ss-navy: #0f2c4c;
+  --ss-night: #071626;
+  --ss-harbor: #1b4f72;
+  --ss-yellow: #f0c419;
+  --ss-gold: #8c6a00;
+  --ss-graphite: #2a3138;
+  --ss-slate: #5e6a75;
+  --ss-mist: #e4e8ec;
+  --ss-paper: #f7f8fa;
+  --ss-white: #f8fafc;
+  --font-display: "Fraunces", "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
+  --font-text: "Source Sans 3", "Segoe UI", sans-serif;
+  --font-mono: "Cascadia Code", Consolas, ui-monospace, monospace;
+  --measure: 68rem;
+  --header: 4.25rem;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--header) + 1rem);
+}
+
+body {
+  margin: 0;
+  background: var(--ss-paper);
+  color: var(--ss-graphite);
+  font-family: var(--font-text);
+  font-size: 1.125rem;
+  line-height: 1.55;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: var(--ss-harbor);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+a:hover {
+  color: var(--ss-navy);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ss-yellow);
+  outline-offset: 3px;
+}
+
+.skip {
+  position: absolute;
+  left: 1rem;
+  top: 0;
+  transform: translateY(-120%);
+  background: var(--ss-yellow);
+  color: var(--ss-night);
+  font-weight: 700;
+  padding: 0.5rem 0.8rem;
+  z-index: 2;
+}
+
+.skip:focus {
+  position: fixed;
+  z-index: 3;
+  transform: none;
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  min-height: var(--header);
+  padding: 0.85rem 1.5rem;
+  background: var(--ss-paper);
+  border-bottom: 1px solid var(--ss-mist);
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--ss-navy);
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.wordmark:hover {
+  color: var(--ss-navy);
+}
+
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.15rem;
+}
+
+.site-nav a {
+  color: var(--ss-graphite);
+  font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.site-nav a:hover {
+  color: var(--ss-harbor);
+}
+
+.hero {
+  position: relative;
+  color: var(--ss-white);
+  background: linear-gradient(165deg, var(--ss-night) 0%, var(--ss-navy) 58%, var(--ss-harbor) 100%);
+  overflow: hidden;
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(248, 250, 252, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(248, 250, 252, 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(180deg, #000 0%, transparent 88%);
+  pointer-events: none;
+}
+
+.hero-inner {
+  position: relative;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 4.5rem 1.5rem 5rem;
+}
+
+.collar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+  margin: 0 0 1.5rem;
+  color: var(--ss-white);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+}
+
+.collar a {
+  color: var(--ss-white);
+  text-decoration: none;
+}
+
+.collar a::before {
+  content: "";
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.55rem;
+  background: var(--ss-yellow);
+  vertical-align: -0.05rem;
+}
+
+.collar a:hover {
+  color: var(--ss-white);
+  text-decoration: underline;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 560;
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+}
+
+h1 {
+  max-width: 10em;
+  margin: 0;
+  color: var(--ss-navy);
+  font-size: clamp(2.6rem, 6vw, 4.6rem);
+  text-wrap: balance;
+}
+
+.hero h1 {
+  color: var(--ss-white);
+}
+
+h1::after {
+  content: "";
+  display: block;
+  width: 4.5rem;
+  height: 3px;
+  margin-top: 1.35rem;
+  background: var(--ss-yellow);
+}
+
+.deck {
+  max-width: 38rem;
+  margin: 1.35rem 0 0;
+  font-size: 1.3rem;
+  line-height: 1.45;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+.button {
+  display: inline-block;
+  padding: 0.72rem 1.05rem;
+  border: 1px solid transparent;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.button-accent {
+  background: var(--ss-yellow);
+  color: var(--ss-night);
+}
+
+.button-accent:hover {
+  background: var(--ss-yellow);
+  color: var(--ss-night);
+  box-shadow: inset 0 0 0 2px var(--ss-night);
+}
+
+.button-ghost {
+  border-color: var(--ss-white);
+  color: var(--ss-white);
+}
+
+.button-ghost:hover {
+  background: var(--ss-yellow);
+  border-color: var(--ss-yellow);
+  color: var(--ss-night);
+}
+
+.band {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 4.5rem 1.5rem 0;
+}
+
+.band-tight {
+  padding-top: 3.5rem;
+}
+
+.section-head {
+  max-width: 40rem;
+  margin-bottom: 1.5rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.4rem;
+  color: var(--ss-gold);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h2 {
+  margin: 0;
+  color: var(--ss-navy);
+  font-size: clamp(1.8rem, 3vw, 2.5rem);
+}
+
+.work-layout {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.work-copy p {
+  margin: 0 0 0.8rem;
+}
+
+.work-figure {
+  display: block;
+  background: var(--ss-night);
+  border: 1px solid var(--ss-mist);
+}
+
+.work-figure img {
+  display: block;
+  width: 100%;
+}
+
+.text-link {
+  font-weight: 700;
+}
+
+.mission {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--ss-mist);
+  border: 1px solid var(--ss-mist);
+}
+
+.mission li {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 1.35rem 1.25rem 1.5rem;
+  background: var(--ss-white);
+}
+
+.mission p {
+  margin: 0;
+  color: var(--ss-navy);
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  line-height: 1.25;
+}
+
+.index {
+  color: var(--ss-gold);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.repo-list,
+.story-list,
+.action-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--ss-mist);
+}
+
+.repo-list li,
+.story-list li,
+.action-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem 1.5rem;
+  padding: 1.15rem 0;
+  border-bottom: 1px solid var(--ss-mist);
+}
+
+.repo-list h3 {
+  margin: 0;
+  font-size: 1.45rem;
+}
+
+.repo-list h3 a,
+.story-list a,
+.action-list a {
+  color: var(--ss-navy);
+  text-decoration: none;
+}
+
+.repo-list h3 a:hover,
+.story-list a:hover,
+.action-list a:hover {
+  color: var(--ss-harbor);
+  text-decoration: underline;
+}
+
+.repo-list p {
+  margin: 0.25rem 0 0;
+  color: var(--ss-slate);
+}
+
+.story-list span {
+  color: var(--ss-slate);
+  font-size: 0.95rem;
+}
+
+.lede {
+  max-width: 40rem;
+  margin: 0 0 0.5rem;
+}
+
+.site-footer {
+  margin-top: 4.5rem;
+  background: var(--ss-night);
+  color: var(--ss-white);
+}
+
+.footer-inner {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 2.75rem;
+}
+
+.site-footer .wordmark {
+  color: var(--ss-white);
+  padding: 0;
+}
+
+.site-footer p {
+  margin: 0.35rem 0 1.1rem;
+  color: var(--ss-mist);
+}
+
+.connect {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connect a {
+  color: var(--ss-white);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.connect a:hover {
+  color: var(--ss-yellow);
+}
+
+@media (min-width: 800px) {
+  .work-layout {
+    grid-template-columns: minmax(16rem, 0.7fr) 1.4fr;
+    align-items: start;
+    gap: 2rem;
+  }
+
+  .mission {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
